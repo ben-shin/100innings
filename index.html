@@ -1,1 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>100 Innings Logger</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background: #111;
+      color: #eee;
+    }
 
+    h1 {
+      text-align: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .state {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      font-size: 1.2rem;
+    }
+
+    .box {
+      padding: 0.5rem;
+      background: #222;
+      border-radius: 6px;
+      text-align: center;
+    }
+
+    .buttons {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    button {
+      font-size: 1.1rem;
+      padding: 0.75rem;
+      border: none;
+      border-radius: 6px;
+      background: #444;
+      color: white;
+    }
+
+    button:active {
+      background: #666;
+    }
+
+    .wide {
+      grid-column: span 3;
+    }
+
+    .footer {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+
+<h1>100 Innings Logger</h1>
+
+<div class="state">
+  <div class="box" id="inningBox"></div>
+  <div class="box" id="outsBox"></div>
+  <div class="box" id="countBox"></div>
+  <div class="box" id="basesBox"></div>
+</div>
+
+<div class="buttons">
+  <button onclick="ball()">BALL</button>
+  <button onclick="strike()">STRIKE</button>
+  <button onclick="foul()">FOUL</button>
+
+  <button onclick="walk()">WALK</button>
+  <button onclick="strikeout()">STRIKEOUT</button>
+  <button onclick="outInPlay()">OUT</button>
+
+  <button onclick="hit()">HIT</button>
+  <button onclick="steal()">STEAL</button>
+  <button onclick="error()">ERROR</button>
+</div>
+
+<div class="footer">
+  <button onclick="undo()">UNDO</button>
+  <button onclick="exportLog()">EXPORT DAY</button>
+</div>
+
+<script>
+let gameState = JSON.parse(localStorage.getItem("gameState")) || {
+  inning: 1,
+  half: "top",
+  balls: 0,
+  strikes: 0,
+  outs: 0,
+  runners: [false, false, false],
+  events: []
+};
+
+function save() {
+  localStorage.setItem("gameState", JSON.stringify(gameState));
+}
+
+function logEvent(type, details = {}) {
+  gameState.events.push({
+    time: new Date().toISOString(),
+    inning: gameState.inning,
+    half: gameState.half,
+    type,
+    details
+  });
+  save();
+  render();
+}
+
+function resetCount() {
+  gameState.balls = 0;
+  gameState.strikes = 0;
+}
+
+function advanceBatter() {
+  resetCount();
+}
+
+function nextHalfInning() {
+  gameState.outs = 0;
+  resetCount();
+  gameState.runners = [false, false, false];
+  gameState.half = gameState.half === "top" ? "bottom" : "top";
+  if (gameState.half === "top") gameState.inning += 1;
+}
+
+function ball() {
+  gameState.balls++;
+  logEvent("ball");
+  if (gameState.balls >= 4) walk();
+}
+
+function strike() {
+  gameState.strikes++;
+  logEvent("strike");
+  if (gameState.strikes >= 3) strikeout();
+}
+
+function foul() {
+  if (gameState.strikes < 2) gameState.strikes++;
+  logEvent("foul");
+}
+
+function walk() {
+  logEvent("walk");
+  advanceBatter();
+}
+
+function strikeout() {
+  logEvent("strikeout");
+  gameState.outs++;
+  advanceBatter();
+  if (gameState.outs >= 3) nextHalfInning();
+}
+
+function outInPlay() {
+  logEvent("out_in_play");
+  gameState.outs++;
+  advanceBatter();
+  if (gameState.outs >= 3) nextHalfInning();
+}
+
+function hit() {
+  logEvent("hit");
+  advanceBatter();
+}
+
+function steal() {
+  logEvent("steal");
+}
+
+function error() {
+  logEvent("error");
+}
+
+function undo() {
+  gameState.events.pop();
+  rebuildFromEvents();
+}
+
+function rebuildFromEvents() {
+  gameState = {
+    inning: 1,
+    half: "top",
+    balls: 0,
+    strikes: 0,
+    outs: 0,
+    runners: [false, false, false],
+    events: gameState.events
+  };
+
+  const events = [...gameState.events];
+  gameState.events = [];
+
+  events.forEach(e => {
+    gameState.inning = e.inning;
+    gameState.half = e.half;
+    gameState.events.push(e);
+  });
+
+  save();
+  render();
+}
+
+function exportLog() {
+  const blob = new Blob(
+    [JSON.stringify(gameState.events, null, 2)],
+    { type: "application/json" }
+  );
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "day-events.json";
+  a.click();
+}
+
+function render() {
+  document.getElementById("inningBox").textContent =
+    `Inning ${gameState.inning} — ${gameState.half}`;
+
+  document.getElementById("outsBox").textContent =
+    `Outs: ${gameState.outs}`;
+
+  document.getElementById("countBox").textContent =
+    `Count: ${gameState.balls}-${gameState.strikes}`;
+
+  document.getElementById("basesBox").textContent =
+    `Bases: ${gameState.runners.map(r => r ? "●" : "○").join(" ")}`;
+}
+
+render();
+</script>
+
+</body>
+</html>
