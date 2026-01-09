@@ -24,7 +24,7 @@
       grid-template-columns: repeat(2, 1fr);
       gap: 0.5rem;
       margin-bottom: 1rem;
-      font-size: 1.1rem;
+      font-size: 1.05rem;
     }
 
     .box {
@@ -42,8 +42,8 @@
     }
 
     button {
-      font-size: 1rem;
-      padding: 0.75rem;
+      font-size: 0.95rem;
+      padding: 0.7rem;
       border: none;
       border-radius: 6px;
       background: #444;
@@ -61,10 +61,10 @@
     }
 
     #bases button {
-      width: 60px;
-      height: 60px;
+      width: 55px;
+      height: 55px;
       border-radius: 50%;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
     }
 
     .footer {
@@ -81,8 +81,10 @@
 
 <div class="state">
   <div class="box" id="inningBox"></div>
+  <div class="box" id="scoreBox"></div>
   <div class="box" id="outsBox"></div>
   <div class="box" id="countBox"></div>
+
   <div class="box">
     Bases
     <div id="bases">
@@ -100,8 +102,10 @@
 
   <button onclick="hit()">HIT</button>
   <button onclick="outInPlay()">OUT</button>
-  <button onclick="steal()">STEAL</button>
+  <button onclick="stealAttempt()">STEAL</button>
 
+  <button onclick="pickoff()">PICKOFF</button>
+  <button onclick="throwdown()">THROWDOWN</button>
   <button onclick="errorOnly()">ERROR</button>
 </div>
 
@@ -111,7 +115,7 @@
 </div>
 
 <script>
-/* ---------------- STATE ---------------- */
+/* ================= STATE ================= */
 
 let gameState = JSON.parse(localStorage.getItem("gameState")) || {
   inning: 1,
@@ -120,10 +124,11 @@ let gameState = JSON.parse(localStorage.getItem("gameState")) || {
   strikes: 0,
   outs: 0,
   runners: [false, false, false],
+  score: { away: 0, home: 0 },
   events: []
 };
 
-/* ---------------- UTIL ---------------- */
+/* ================= UTIL ================= */
 
 function save() {
   localStorage.setItem("gameState", JSON.stringify(gameState));
@@ -146,6 +151,11 @@ function resetCount() {
   gameState.strikes = 0;
 }
 
+function scoreRun() {
+  if (gameState.half === "top") gameState.score.away++;
+  else gameState.score.home++;
+}
+
 function nextHalfInning() {
   gameState.outs = 0;
   resetCount();
@@ -154,15 +164,11 @@ function nextHalfInning() {
   if (gameState.half === "top") gameState.inning++;
 }
 
-/* ---------------- RUNNERS ---------------- */
+/* ================= RUNNERS ================= */
 
 function toggleBase(base) {
   gameState.runners[base - 1] = !gameState.runners[base - 1];
   logEvent("runner_toggle", { base });
-}
-
-function clearRunners() {
-  gameState.runners = [false, false, false];
 }
 
 function advanceRunners(bases) {
@@ -170,17 +176,15 @@ function advanceRunners(bases) {
 
   for (let i = 2; i >= 0; i--) {
     if (gameState.runners[i]) {
-      const newBase = i + bases;
-      if (newBase < 3) {
-        newRunners[newBase] = true;
-      }
+      const dest = i + bases;
+      if (dest >= 3) scoreRun();
+      else newRunners[dest] = true;
     }
   }
-
   gameState.runners = newRunners;
 }
 
-/* ---------------- PITCHES ---------------- */
+/* ================= PITCHES ================= */
 
 function ball() {
   if (gameState.balls >= 3) {
@@ -211,7 +215,7 @@ function foul() {
   logEvent("foul");
 }
 
-/* ---------------- HIT WORKFLOW ---------------- */
+/* ================= HIT WORKFLOW ================= */
 
 function hit() {
   const type = prompt("Hit type? (1B, 2B, 3B, HR)", "1B");
@@ -219,7 +223,7 @@ function hit() {
 
   const basesMap = { "1B": 1, "2B": 2, "3B": 3, "HR": 4 };
   const batterBases = basesMap[type.toUpperCase()];
-  if (!batterBases) return alert("Invalid hit type.");
+  if (!batterBases) return alert("Invalid hit.");
 
   const runnerAdvance = parseInt(
     prompt("How many bases did runners advance?", "1"),
@@ -237,16 +241,19 @@ function hit() {
   });
 
   if (batterBases === 4) {
-    clearRunners();
+    gameState.runners.forEach(r => r && scoreRun());
+    scoreRun(); // batter
+    gameState.runners = [false, false, false];
   } else {
     advanceRunners(runnerAdvance);
-    gameState.runners[batterBases - 1] = true;
+    if (batterBases - 1 >= 3) scoreRun();
+    else gameState.runners[batterBases - 1] = true;
   }
 
   resetCount();
 }
 
-/* ---------------- BALL IN PLAY ---------------- */
+/* ================= DEFENSE ================= */
 
 function outInPlay() {
   logEvent("out_in_play");
@@ -255,15 +262,49 @@ function outInPlay() {
   if (gameState.outs >= 3) nextHalfInning();
 }
 
-function steal() {
-  logEvent("steal");
+function stealAttempt() {
+  const success = confirm("Steal successful?");
+  logEvent("steal_attempt", { success });
+
+  if (!success) {
+    gameState.outs++;
+    if (gameState.outs >= 3) nextHalfInning();
+  }
+}
+
+function pickoff() {
+  const base = parseInt(prompt("Pickoff attempt at which base? (1,2,3)", "1"), 10);
+  if (![1,2,3].includes(base)) return;
+
+  const out = confirm("Runner out?");
+  logEvent("pickoff", { base, out });
+
+  if (out && gameState.runners[base - 1]) {
+    gameState.runners[base - 1] = false;
+    gameState.outs++;
+    if (gameState.outs >= 3) nextHalfInning();
+  }
+}
+
+function throwdown() {
+  const base = parseInt(prompt("Throwdown to which base? (2 or 3)", "2"), 10);
+  if (![2,3].includes(base)) return;
+
+  const out = confirm("Runner out?");
+  logEvent("throwdown", { base, out });
+
+  if (out && gameState.runners[base - 2]) {
+    gameState.runners[base - 2] = false;
+    gameState.outs++;
+    if (gameState.outs >= 3) nextHalfInning();
+  }
 }
 
 function errorOnly() {
   logEvent("error");
 }
 
-/* ---------------- UNDO / EXPORT ---------------- */
+/* ================= UNDO / EXPORT ================= */
 
 function undo() {
   gameState.events.pop();
@@ -280,6 +321,7 @@ function rebuildFromEvents() {
     strikes: 0,
     outs: 0,
     runners: [false, false, false],
+    score: { away: 0, home: 0 },
     events: []
   };
 
@@ -304,11 +346,14 @@ function exportLog() {
   a.click();
 }
 
-/* ---------------- RENDER ---------------- */
+/* ================= RENDER ================= */
 
 function render() {
   document.getElementById("inningBox").textContent =
     `Inning ${gameState.inning} — ${gameState.half}`;
+
+  document.getElementById("scoreBox").textContent =
+    `Away ${gameState.score.away} — Home ${gameState.score.home}`;
 
   document.getElementById("outsBox").textContent =
     `Outs: ${gameState.outs}`;
