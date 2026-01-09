@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>100 Innings Logger</title>
+
   <style>
     body {
       font-family: system-ui, sans-serif;
@@ -23,7 +24,7 @@
       grid-template-columns: repeat(2, 1fr);
       gap: 0.5rem;
       margin-bottom: 1rem;
-      font-size: 1.2rem;
+      font-size: 1.1rem;
     }
 
     .box {
@@ -41,7 +42,7 @@
     }
 
     button {
-      font-size: 1.1rem;
+      font-size: 1rem;
       padding: 0.75rem;
       border: none;
       border-radius: 6px;
@@ -53,8 +54,17 @@
       background: #666;
     }
 
-    .wide {
-      grid-column: span 3;
+    #bases {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 0.5rem;
+    }
+
+    #bases button {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      font-size: 0.9rem;
     }
 
     .footer {
@@ -64,6 +74,7 @@
     }
   </style>
 </head>
+
 <body>
 
 <h1>100 Innings Logger</h1>
@@ -72,7 +83,14 @@
   <div class="box" id="inningBox"></div>
   <div class="box" id="outsBox"></div>
   <div class="box" id="countBox"></div>
-  <div class="box" id="basesBox"></div>
+  <div class="box">
+    Bases
+    <div id="bases">
+      <button onclick="toggleBase(1)">1B</button>
+      <button onclick="toggleBase(2)">2B</button>
+      <button onclick="toggleBase(3)">3B</button>
+    </div>
+  </div>
 </div>
 
 <div class="buttons">
@@ -80,13 +98,11 @@
   <button onclick="strike()">STRIKE</button>
   <button onclick="foul()">FOUL</button>
 
-  <button onclick="walk()">WALK</button>
-  <button onclick="strikeout()">STRIKEOUT</button>
-  <button onclick="outInPlay()">OUT</button>
-
   <button onclick="hit()">HIT</button>
+  <button onclick="outInPlay()">OUT</button>
   <button onclick="steal()">STEAL</button>
-  <button onclick="error()">ERROR</button>
+
+  <button onclick="errorOnly()">ERROR</button>
 </div>
 
 <div class="footer">
@@ -95,6 +111,8 @@
 </div>
 
 <script>
+/* ---------------- STATE ---------------- */
+
 let gameState = JSON.parse(localStorage.getItem("gameState")) || {
   inning: 1,
   half: "top",
@@ -104,6 +122,8 @@ let gameState = JSON.parse(localStorage.getItem("gameState")) || {
   runners: [false, false, false],
   events: []
 };
+
+/* ---------------- UTIL ---------------- */
 
 function save() {
   localStorage.setItem("gameState", JSON.stringify(gameState));
@@ -126,28 +146,64 @@ function resetCount() {
   gameState.strikes = 0;
 }
 
-function advanceBatter() {
-  resetCount();
-}
-
 function nextHalfInning() {
   gameState.outs = 0;
   resetCount();
   gameState.runners = [false, false, false];
   gameState.half = gameState.half === "top" ? "bottom" : "top";
-  if (gameState.half === "top") gameState.inning += 1;
+  if (gameState.half === "top") gameState.inning++;
 }
 
+/* ---------------- RUNNERS ---------------- */
+
+function toggleBase(base) {
+  gameState.runners[base - 1] = !gameState.runners[base - 1];
+  logEvent("runner_toggle", { base });
+}
+
+function clearRunners() {
+  gameState.runners = [false, false, false];
+}
+
+function advanceRunners(bases) {
+  const newRunners = [false, false, false];
+
+  for (let i = 2; i >= 0; i--) {
+    if (gameState.runners[i]) {
+      const newBase = i + bases;
+      if (newBase < 3) {
+        newRunners[newBase] = true;
+      }
+    }
+  }
+
+  gameState.runners = newRunners;
+}
+
+/* ---------------- PITCHES ---------------- */
+
 function ball() {
-  gameState.balls++;
-  logEvent("ball");
-  if (gameState.balls >= 4) walk();
+  if (gameState.balls >= 3) {
+    logEvent("walk");
+    advanceRunners(1);
+    gameState.runners[0] = true;
+    resetCount();
+  } else {
+    gameState.balls++;
+    logEvent("ball");
+  }
 }
 
 function strike() {
-  gameState.strikes++;
-  logEvent("strike");
-  if (gameState.strikes >= 3) strikeout();
+  if (gameState.strikes >= 2) {
+    logEvent("strikeout");
+    gameState.outs++;
+    resetCount();
+    if (gameState.outs >= 3) nextHalfInning();
+  } else {
+    gameState.strikes++;
+    logEvent("strike");
+  }
 }
 
 function foul() {
@@ -155,37 +211,59 @@ function foul() {
   logEvent("foul");
 }
 
-function walk() {
-  logEvent("walk");
-  advanceBatter();
+/* ---------------- HIT WORKFLOW ---------------- */
+
+function hit() {
+  const type = prompt("Hit type? (1B, 2B, 3B, HR)", "1B");
+  if (!type) return;
+
+  const basesMap = { "1B": 1, "2B": 2, "3B": 3, "HR": 4 };
+  const batterBases = basesMap[type.toUpperCase()];
+  if (!batterBases) return alert("Invalid hit type.");
+
+  const runnerAdvance = parseInt(
+    prompt("How many bases did runners advance?", "1"),
+    10
+  );
+
+  if (isNaN(runnerAdvance)) return alert("Invalid number.");
+
+  const isError = confirm("Was there an error on the play?");
+
+  logEvent("hit", {
+    hitType: type.toUpperCase(),
+    runnerAdvance,
+    error: isError
+  });
+
+  if (batterBases === 4) {
+    clearRunners();
+  } else {
+    advanceRunners(runnerAdvance);
+    gameState.runners[batterBases - 1] = true;
+  }
+
+  resetCount();
 }
 
-function strikeout() {
-  logEvent("strikeout");
-  gameState.outs++;
-  advanceBatter();
-  if (gameState.outs >= 3) nextHalfInning();
-}
+/* ---------------- BALL IN PLAY ---------------- */
 
 function outInPlay() {
   logEvent("out_in_play");
   gameState.outs++;
-  advanceBatter();
+  resetCount();
   if (gameState.outs >= 3) nextHalfInning();
-}
-
-function hit() {
-  logEvent("hit");
-  advanceBatter();
 }
 
 function steal() {
   logEvent("steal");
 }
 
-function error() {
+function errorOnly() {
   logEvent("error");
 }
+
+/* ---------------- UNDO / EXPORT ---------------- */
 
 function undo() {
   gameState.events.pop();
@@ -193,6 +271,8 @@ function undo() {
 }
 
 function rebuildFromEvents() {
+  const events = [...gameState.events];
+
   gameState = {
     inning: 1,
     half: "top",
@@ -200,11 +280,8 @@ function rebuildFromEvents() {
     strikes: 0,
     outs: 0,
     runners: [false, false, false],
-    events: gameState.events
+    events: []
   };
-
-  const events = [...gameState.events];
-  gameState.events = [];
 
   events.forEach(e => {
     gameState.inning = e.inning;
@@ -227,6 +304,8 @@ function exportLog() {
   a.click();
 }
 
+/* ---------------- RENDER ---------------- */
+
 function render() {
   document.getElementById("inningBox").textContent =
     `Inning ${gameState.inning} — ${gameState.half}`;
@@ -237,8 +316,9 @@ function render() {
   document.getElementById("countBox").textContent =
     `Count: ${gameState.balls}-${gameState.strikes}`;
 
-  document.getElementById("basesBox").textContent =
-    `Bases: ${gameState.runners.map(r => r ? "●" : "○").join(" ")}`;
+  document.querySelectorAll("#bases button").forEach((btn, i) => {
+    btn.style.background = gameState.runners[i] ? "#0a0" : "#444";
+  });
 }
 
 render();
